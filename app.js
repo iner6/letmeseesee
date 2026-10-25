@@ -19,7 +19,8 @@ let ui = {
   quickMode: false,
   trendPlayerId: null,
   trendTab: 'people',
-  rankFilter: 'all'
+  rankFilter: 'all',
+  mapRank: 'first'
 };
 
 function loadDB() {
@@ -218,6 +219,7 @@ const actions = {
   setTrendPlayer(id) { ui.trendPlayerId = id; ui.trendTab = 'people'; render(); },
   setTrendTab(tab) { ui.trendTab = tab; render(); },
   setRankFilter(filter) { ui.rankFilter = filter; render(); },
+  setMapRank(rank) { ui.mapRank = rank; render(); },
   editNames() { ui.view = 'setup'; render(); },
   saveNames() {
     const game = activeGame();
@@ -305,6 +307,7 @@ function render() {
   if (!ui.roundId || !game.rounds.some(r => r.id === ui.roundId)) ui.roundId = game.rounds[game.rounds.length - 1]?.id;
   const pages = { home: renderDashboard, fill: renderFill, relations: renderRelations, trends: renderTrends, settings: renderSettings };
   root.innerHTML = (pages[ui.view] || renderDashboard)(game);
+  if (ui.view === 'relations') requestAnimationFrame(drawSignalMap);
 }
 
 function renderWelcome() {
@@ -359,9 +362,57 @@ function renderRelations(game) {
   const round = currentRound(game); const a = analyzeRound(game, round);
   const mutualCards = a.mutualPairs.map((pair,i) => `<article class="card ${i===0?'feature-card':''}"><div class="card-label"><span>${i===0?'✦':'♥'}</span>${i===0?'最強配對':'互選配對'}</div><div class="relation-visual"><div class="person-badge">${esc(pname(game,pair.a))}</div><div class="relation-arrow">♥<br>↕</div><div class="person-badge">${esc(pname(game,pair.b))}</div></div><div class="list-row"><span>${esc(pname(game,pair.a))}：${pair.aRank==='first'?'第一':'第二'}心動</span><span class="stars">${starString(pair.points)}</span></div><div class="list-row"><span>${esc(pname(game,pair.b))}：${pair.bRank==='first'?'第一':'第二'}心動</span><span class="tag">${pair.points===6?'雙方第一':'互相心動'}</span></div></article>`).join('');
   const oneWay = a.oneWay.map(v => `<div class="list-row"><div class="arrow-line"><b>${esc(pname(game,v.from))}</b><span class="heart">♥</span><span class="arrow">→</span><b>${esc(pname(game,v.to))}</b></div><span class="tag">${v.rank==='first'?'第一':'第二'}</span></div>`).join('');
-  const content = `<div class="subhead"><p class="kicker">RELATION MAP</p><h1>Round ${round.number} 關係</h1><p class="muted">互選以配對卡呈現，避免手機上的複雜大圖。</p></div>${mutualCards || `<section class="card empty-state"><div class="empty-symbol">♥</div><h3>尚無互選配對</h3><p>完成更多心動選擇後，配對會出現在這裡。</p></section>`}<div class="section-head"><h2>單向心動</h2><span class="tiny muted">${a.oneWay.length} 條箭頭</span></div><section class="card">${oneWay || `<div class="empty-mini">目前沒有單向心動。</div>`}</section><div class="section-head"><h2>本輪人氣</h2></div>${renderPopularityCard(game, a.popularity, false)}`;
+  const content = `<div class="subhead"><p class="kicker">RELATION MAP</p><h1>Round ${round.number} 關係</h1><p class="muted">用箭頭方向比對雙方選擇，再以配對卡查看細節。</p></div>${renderSignalMap(game, round)}<div class="section-head"><h2>配對分析</h2><span class="tiny muted">${a.mutualPairs.length} 組互選</span></div>${mutualCards || `<section class="card empty-state"><div class="empty-symbol">♥</div><h3>尚無互選配對</h3><p>完成更多心動選擇後，配對會出現在這裡。</p></section>`}<div class="section-head"><h2>單向心動</h2><span class="tiny muted">${a.oneWay.length} 條箭頭</span></div><section class="card">${oneWay || `<div class="empty-mini">目前沒有單向心動。</div>`}</section><div class="section-head"><h2>本輪人氣</h2></div>${renderPopularityCard(game, a.popularity, false)}`;
   return appFrame(content);
 }
+
+function renderSignalMap(game, round) {
+  const people = gender => game.players.filter(p => p.gender === gender)
+    .map(p => `<button class="signal-person ${gender}" data-signal-player="${p.id}" onclick="actions.setTrendPlayer('${p.id}');actions.go('trends')"><span>${esc(p.name)}</span></button>`).join('');
+  const ranks = ui.mapRank === 'all' ? ['first', 'second'] : ['first'];
+  const hasLines = game.players.some(p => ranks.some(rank => round.votes[p.id]?.[rank]));
+  return `<section class="card signal-card"><div class="signal-head"><div><div class="card-label"><span class="dot"></span>心動線圖</div><p class="tiny muted">點擊名字可查看人物歷史</p></div><div class="signal-legend"><span><i class="legend-line male"></i>男生</span><span><i class="legend-line female"></i>女生</span></div></div><div class="segmented signal-filter"><button class="seg-btn ${ui.mapRank==='first'?'active':''}" onclick="actions.setMapRank('first')">只看第一心動</button><button class="seg-btn ${ui.mapRank==='all'?'active':''}" onclick="actions.setMapRank('all')">第一＋第二</button></div><div class="signal-map" data-signal-map data-ranks="${ranks.join(',')}"><svg class="signal-svg" aria-hidden="true"></svg><div class="signal-column left"><span class="signal-side-label">男生</span>${people('male')}</div><div class="signal-column right"><span class="signal-side-label">女生</span>${people('female')}</div>${hasLines?'':`<div class="signal-empty">尚未填寫心動選擇</div>`}</div><div class="signal-note"><span><b>實線</b> 第一心動</span>${ui.mapRank==='all'?`<span><b>虛線</b> 第二心動</span>`:''}<span><b>箭頭</b> 喜歡方向</span></div></section>`;
+}
+
+function drawSignalMap() {
+  const map = document.querySelector('[data-signal-map]');
+  if (!map) return;
+  const game = activeGame(); const round = currentRound(game);
+  const svg = map.querySelector('.signal-svg');
+  const bounds = map.getBoundingClientRect();
+  const width = Math.round(bounds.width); const height = Math.round(bounds.height);
+  if (!width || !height) return;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  const ranks = map.dataset.ranks.split(',');
+  const defs = `<defs><marker id="arrow-male" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill="#4b8dbf"/></marker><marker id="arrow-female" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill="#c65267"/></marker></defs>`;
+  const paths = [];
+  game.players.forEach(voter => {
+    ranks.forEach(rank => {
+      const targetId = round.votes[voter.id]?.[rank];
+      if (!targetId) return;
+      const source = map.querySelector(`[data-signal-player="${voter.id}"]`);
+      const target = map.querySelector(`[data-signal-player="${targetId}"]`);
+      if (!source || !target) return;
+      const s = source.getBoundingClientRect(); const t = target.getBoundingClientRect();
+      const isMale = voter.gender === 'male';
+      const x1 = isMale ? s.right - bounds.left - 2 : s.left - bounds.left + 2;
+      const x2 = isMale ? t.left - bounds.left + 2 : t.right - bounds.left - 2;
+      const y1 = s.top - bounds.top + s.height / 2;
+      const y2 = t.top - bounds.top + t.height / 2;
+      const middle = (x1 + x2) / 2;
+      const bend = isMale ? -7 : 7;
+      const color = isMale ? '#4b8dbf' : '#c65267';
+      const marker = isMale ? 'arrow-male' : 'arrow-female';
+      const second = rank === 'second';
+      paths.push(`<path d="M ${x1} ${y1} C ${middle} ${y1+bend}, ${middle} ${y2+bend}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${second?1.7:2.7}" stroke-linecap="round" ${second?'stroke-dasharray="5 5" opacity=".58"':'opacity=".9"'} marker-end="url(#${marker})"/>`);
+    });
+  });
+  svg.innerHTML = defs + paths.join('');
+}
+
+window.addEventListener('resize', () => {
+  if (ui.view === 'relations') requestAnimationFrame(drawSignalMap);
+});
 
 function renderPopularityCard(game, ranking, cumulative = false) {
   const top = ranking[0];
